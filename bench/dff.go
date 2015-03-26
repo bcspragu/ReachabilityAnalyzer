@@ -8,15 +8,11 @@ func (d *Dff) SetOut() {
 	d.o.on = d.i.on
 }
 
-func NewDFF(in, out *Port) Gate {
+func NewDFF(id int, in, out *Port) Gate {
 	dff := new(Dff)
+	dff.id = id
 	dff.gateType = "DFF"
-
-	dff.i = in
-	dff.o = out
-
-	in.attachGate(dff)
-	out.attachGate(dff)
+	dff.attachPorts(in, out)
 
 	return dff
 }

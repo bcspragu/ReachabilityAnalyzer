@@ -8,15 +8,11 @@ func (n *Not) SetOut() {
 	n.o.on = !n.i.on
 }
 
-func NewNOT(in, out *Port) Gate {
+func NewNOT(id int, in, out *Port) Gate {
 	not := new(Not)
+	not.id = id
 	not.gateType = "NOT"
-
-	not.i = in
-	not.o = out
-
-	in.attachGate(not)
-	out.attachGate(not)
+	not.attachPorts(in, out)
 
 	return not
 }

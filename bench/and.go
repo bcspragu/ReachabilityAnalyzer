@@ -15,8 +15,13 @@ func (a *And) SetOut() {
 	a.o.on = a.i.on && a.i2.on
 }
 
-func NewAND(in1, in2, out *Port) Gate {
+func (a *And) Inputs() []*Port {
+	return []*Port{a.i, a.i2}
+}
+
+func NewAND(id int, in1, in2, out *Port) Gate {
 	and := new(And)
+	and.id = id
 	and.gateType = "AND"
 
 	and.i = in1
@@ -24,16 +29,13 @@ func NewAND(in1, in2, out *Port) Gate {
 
 	and.o = out
 
-	err := in1.attachGate(and)
-	checkPortError(err)
-	err = in2.attachGate(and)
-	checkPortError(err)
-	err = out.attachGate(and)
-	checkPortError(err)
+	in1.attachGate(and)
+	in2.attachGate(and)
+	out.attachGate(and)
 
 	return and
 }
 
 func (a *And) Summary() string {
-	return fmt.Sprint("AND IN1: ", a.i.id, " IN2: ", a.i2.id, " OUT: ", a.o.id)
+	return fmt.Sprint("AND ", a.ID(), " IN1: ", a.i.id, " IN2: ", a.i2.id, " OUT: ", a.o.id)
 }
