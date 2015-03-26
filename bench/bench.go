@@ -29,8 +29,16 @@ var gateRE = regexp.MustCompile(`^(\w+)\s*=\s*(\w+)\((\w+)(?:,(\w+))*\)$`)
 var inOutRE = regexp.MustCompile(`^(\w+)\((\w+)\)$`)
 
 type Bench struct {
-	portMap    map[string]*Port
-	nextStates map[string][]string
+	// PortMap is a map from names in a bench file to their
+	// corresponding port objects
+	portMap map[string]*Port
+	// NextStates is a map from a state string to all of the
+	// states that can be reached from it, and what inputs are
+	// needed to reach them
+	nextStates map[string][]Action
+	// PrevStates is a map from a state string to all of the states
+	// that lead to it, and the inputs that led them here
+	prevStates map[string][]Action
 
 	lastPortID int
 	lastGateID int
@@ -50,7 +58,8 @@ func NewFromFile(filename string) *Bench {
 	bench.Gates = []Gate{}
 	bench.FFs = []Gate{}
 	bench.portMap = make(map[string]*Port)
-	bench.nextStates = make(map[string][]string)
+	bench.nextStates = make(map[string][]Action)
+	bench.prevStates = make(map[string][]Action)
 
 	bench.Inputs = []*Port{}
 	bench.Outputs = []*Port{}
@@ -230,17 +239,25 @@ func (b *Bench) IsReachable(goal string) bool {
 
 	for {
 		state, statesToCheck := statesToCheck[0], statesToCheck[1:]
-		reachable := b.reachableStates(state)
+		reachable := b.ReachableStates(state)
+		b.nextStates[state] = reachable
 		// Add all our new, reachable states
-		for _, s := range reachable {
+		for _, a := range reachable {
+			// The previous state from this one was just the state we used to get
+			// over here in the first place
+			if actions, ok := b.prevStates[a.State]; ok {
+				b.prevStates[a.State] = append(actions, Action{State: state, Inputs: a.Inputs})
+			} else {
+				b.prevStates[a.State] = []Action{Action{State: state, Inputs: a.Inputs}}
+			}
 			// Check if newly found state is goal
-			if s == goal {
+			if a.State == goal {
 				return true
 			}
 
-			if _, ok := added[s]; !ok {
-				statesToCheck = append(statesToCheck, s)
-				added[s] = true
+			if _, ok := added[a.State]; !ok {
+				statesToCheck = append(statesToCheck, a.State)
+				added[a.State] = true
 			}
 		}
 
@@ -251,14 +268,27 @@ func (b *Bench) IsReachable(goal string) bool {
 	return false
 }
 
-func (b *Bench) reachableStates(state string) []string {
+func (b *Bench) PossibleSolution(end string) []Action {
+	action := b.prevStates[end][0]
+	actions := []Action{action}
+	initState := strings.Repeat("0", len(b.FFs))
+	for action.State != initState {
+		actions = append(actions, action)
+		action = b.prevStates[action.State][0]
+	}
+	return actions
+}
+
+// Given a state, returns a list of what states you can reach in 1-step, and
+// the inputs that will give you them
+func (b *Bench) ReachableStates(state string) []Action {
 	// If there are n inputs, there are 2^n combinations of those inputs
 	c := int(math.Pow(float64(2), float64(len(b.Inputs))))
 	if states, ok := b.nextStates[state]; ok {
 		return states
 	}
-	states := []string{}
-	found := make(map[string]bool)
+	states := []Action{}
+	found := make(map[string]int)
 	for i := 0; i < c; i++ {
 		// A bit mask padded with zeroes
 		mask := fmt.Sprintf("%0"+strconv.Itoa(len(b.Inputs))+"b", i)
@@ -267,10 +297,14 @@ func (b *Bench) reachableStates(state string) []string {
 		b.setState(state)
 		// Run the circuit
 		b.run()
-		state := b.State()
-		if _, ok := found[state]; !ok {
-			states = append(states, state)
-			found[state] = true
+		// nextState is the state we've reached by running our sim
+		nextState := b.State()
+		if stateLoc, ok := found[nextState]; ok {
+			// Add this input to the list
+			states[stateLoc].Inputs = append(states[stateLoc].Inputs, mask)
+		} else {
+			found[state] = len(states)
+			states = append(states, Action{State: nextState, Inputs: []string{mask}})
 		}
 	}
 	return states

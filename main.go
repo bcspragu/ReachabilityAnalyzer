@@ -6,6 +6,7 @@ import (
 )
 
 func main() {
-	b := bench.NewFromFile("ex1.bench")
-	fmt.Println(b.IsReachable("10"))
+	b := bench.NewFromFile("ex2.bench")
+	fmt.Println(b.IsReachable("111111111111111"))
+	fmt.Println(b.PossibleSolution("111111111111111"))
 }
