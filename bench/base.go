@@ -7,6 +7,7 @@ import (
 type Port struct {
 	id    int
 	on    bool
+	ready bool
 	conns []Gate
 }
 
@@ -37,8 +38,6 @@ type BaseGate struct {
 
 	gateType string
 }
-
-func (b *BaseGate) SetOut() {}
 
 func (b *BaseGate) Inputs() []*Port {
 	return []*Port{b.i}
@@ -75,12 +74,4 @@ func (b *BaseGate) ID() int {
 
 func (p *Port) Conns() []Gate {
 	return p.conns
-}
-
-func (b *BaseGate) attachPorts(in, out *Port) {
-	b.i = in
-	b.o = out
-
-	in.attachGate(b)
-	out.attachGate(b)
 }

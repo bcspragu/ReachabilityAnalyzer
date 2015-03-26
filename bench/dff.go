@@ -16,3 +16,11 @@ func NewDFF(id int, in, out *Port) Gate {
 
 	return dff
 }
+
+func (d *Dff) attachPorts(in, out *Port) {
+	d.i = in
+	d.o = out
+
+	in.attachGate(d)
+	out.attachGate(d)
+}

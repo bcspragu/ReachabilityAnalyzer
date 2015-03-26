@@ -7,6 +7,5 @@ import (
 
 func main() {
 	b := bench.NewFromFile("ex1.bench")
-	fmt.Println(b.Summary())
-	fmt.Println(b.State())
+	fmt.Println(b.IsReachable("10"))
 }
