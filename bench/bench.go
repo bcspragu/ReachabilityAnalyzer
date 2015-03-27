@@ -34,13 +34,12 @@ const (
 	VERBOSE
 )
 
-var gateRE = regexp.MustCompile(`^(\w+)\s*=\s*(\w+)\((\w+)(?:,(\w+))*\)$`)
+var gateRE = regexp.MustCompile(`^(\w+)\s*=\s*(\w+)\((\w+)\s*(?:,\s*(\w+))?\)$`)
 var inOutRE = regexp.MustCompile(`^(\w+)\((\w+)\)$`)
 var verbose int
 
 func init() {
 	flag.IntVar(&verbose, "v", NONE, "level of verboseness in output")
-	flag.Parse()
 }
 
 type Bench struct {
@@ -103,6 +102,7 @@ func NewFromFile(filename string) (*Bench, error) {
 	if err := scanner.Err(); err != nil {
 		return bench, err
 	}
+	debugStatement(fmt.Sprint("Bench created with ", len(bench.Gates), " gates"), DEBUG)
 	return bench, nil
 }
 
@@ -254,14 +254,48 @@ func (b *Bench) Summary() string {
 }
 
 func (b *Bench) IsReachable() bool {
-	// Initial state is all zeroes
+	initState := strings.Repeat("0", len(b.FFs))
+	statesToCheck := []string{initState}
+	for {
+		var state string
+		state, statesToCheck = statesToCheck[0], statesToCheck[1:]
+		reachable := b.reachableStates(state)
+		b.nextStates[state] = reachable
+		fmt.Println(state)
+		// Add all our new, reachable states
+		for _, a := range reachable {
+			// Check if newly found state is goal
+			if a.State == b.Goal {
+				return true
+			}
+		}
+
+		if len(statesToCheck) == 0 {
+			break
+		}
+	}
+	return false
+}
+
+func (b *Bench) ReachableStates() []string {
+	b.isReachableWithActions() //To load the states
+	states := make([]string, len(b.nextStates))
+	i := 0
+	for state := range b.nextStates {
+		states[i] = state
+		i++
+	}
+	return states
+}
+
+func (b *Bench) isReachableWithActions() bool {
 	initState := strings.Repeat("0", len(b.FFs))
 	statesToCheck := []string{initState}
 	added := make(map[string]bool)
-
 	for {
-		state, statesToCheck := statesToCheck[0], statesToCheck[1:]
-		reachable := b.ReachableStates(state)
+		var state string
+		state, statesToCheck = statesToCheck[0], statesToCheck[1:]
+		reachable := b.reachableStatesWithActions(state)
 		b.nextStates[state] = reachable
 		// Add all our new, reachable states
 		for _, a := range reachable {
@@ -291,30 +325,52 @@ func (b *Bench) IsReachable() bool {
 }
 
 func (b *Bench) PossibleSolution() ([]Action, error) {
-	var actions []Action
-	var action Action
-	if prev, ok := b.prevStates[b.Goal]; ok {
-		action = prev[0]
-	} else {
+	if !b.isReachableWithActions() {
 		return []Action{}, errors.New("No solution found")
 	}
 
+	action := b.prevStates[b.Goal][0]
+	actions := []Action{action}
+
 	initState := strings.Repeat("0", len(b.FFs))
-	actions = append(actions, action)
 	for action.State != initState {
-		if prev, ok := b.prevStates[action.State]; ok {
-			action = prev[0]
-		} else {
-			return []Action{}, errors.New("No solution found")
-		}
+		action = b.prevStates[action.State][0]
 		actions = append(actions, action)
 	}
 	return actions, nil
 }
 
+// Given a state, returns a list of what states you can reach in 1-step
+func (b *Bench) reachableStates(state string) []Action {
+	// If there are n inputs, there are 2^n combinations of those inputs
+	c := int(math.Pow(float64(2), float64(len(b.Inputs))))
+	if states, ok := b.nextStates[state]; ok {
+		return states
+	}
+	states := []Action{}
+	found := make(map[string]bool)
+	for i := 0; i < c; i++ {
+		// A bit mask padded with zeroes
+		mask := fmt.Sprintf("%0"+strconv.Itoa(len(b.Inputs))+"b", i)
+		b.resetPorts()
+		b.setInputs(mask)
+		b.setState(state)
+		// Run the circuit
+		b.run()
+		// nextState is the state we've reached by running our sim
+		nextState := b.State()
+		// If we haven't seen this nextState yet
+		if _, ok := found[nextState]; !ok {
+			found[nextState] = true
+			states = append(states, Action{State: nextState})
+		}
+	}
+	return states
+}
+
 // Given a state, returns a list of what states you can reach in 1-step, and
 // the inputs that will give you them
-func (b *Bench) ReachableStates(state string) []Action {
+func (b *Bench) reachableStatesWithActions(state string) []Action {
 	// If there are n inputs, there are 2^n combinations of those inputs
 	c := int(math.Pow(float64(2), float64(len(b.Inputs))))
 	if states, ok := b.nextStates[state]; ok {
@@ -336,13 +392,15 @@ func (b *Bench) ReachableStates(state string) []Action {
 			// Add this input to the list
 			states[stateLoc].Inputs = append(states[stateLoc].Inputs, mask)
 		} else {
-			found[state] = len(states)
+			fmt.Println("Found", nextState)
+			found[nextState] = len(states)
 			states = append(states, Action{State: nextState, Inputs: []string{mask}})
 		}
 	}
 	return states
 }
 
+// Run through a single step of the circuit
 func (b *Bench) run() {
 	gatesToCheck := []Gate{}
 	gateCheck := make([]bool, len(b.Gates))
@@ -378,6 +436,7 @@ func (b *Bench) run() {
 			gate, gatesToCheck = gatesToCheck[0], gatesToCheck[1:]
 			gate.SetOut()
 			gate.Outputs()[0].ready = true
+			//debugStatement(fmt.Sprint("Looking at gate ID ", gate.ID(), " of type ", gate.Type(), " setting output to ", gate.Outputs()[0].on, " based on inputs ", gate.Inputs()[0].on), DEBUG)
 			for _, conn := range gate.Outputs()[0].conns {
 				// If  we have a new gate that hasn't been checked and isn't a DFF
 				if conn.Type() != "DFF" && !gateCheck[conn.ID()-1] {

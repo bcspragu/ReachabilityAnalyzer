@@ -2,13 +2,14 @@ package main
 
 import (
 	"./bench"
+	"flag"
 	"fmt"
-	"os"
 )
 
 func main() {
-	b, _ := bench.NewFromFile(os.Args[1])
-	fmt.Println(b.IsReachable())
-	sol, err := b.PossibleSolution()
-	fmt.Println(sol, err)
+	input := flag.String("input", "bench/ex1", "bench file to parse")
+	flag.Parse()
+
+	b, _ := bench.NewFromFile(*input)
+	fmt.Println(b.ReachableStates())
 }
