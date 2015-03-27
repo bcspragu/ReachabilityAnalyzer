@@ -3,7 +3,7 @@ package bench
 import (
 	"bufio"
 	"bytes"
-	"errors"
+	//"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -12,14 +12,14 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // This beautifully crafted regular expression will match
 // statements of the form:
 // V0 = AND(A,X1)
 // V1 = NOT(X1)
-// V2 = DFF(V1)
-// V3 = DFF(V0)
+// V2 = DFF(V1) // V3 = DFF(V0)
 // The regex will capture the output port name, the gate type,
 // and the input port name(s). The examples above would yield
 // the following captures:
@@ -49,10 +49,7 @@ type Bench struct {
 	// NextStates is a map from a state string to all of the
 	// states that can be reached from it, and what inputs are
 	// needed to reach them
-	nextStates map[string][]Action
-	// PrevStates is a map from a state string to all of the states
-	// that lead to it, and the inputs that led them here
-	prevStates map[string][]Action
+	nextStates map[string][]string
 
 	lastPortID int
 	lastGateID int
@@ -74,8 +71,7 @@ func NewFromFile(filename string) (*Bench, error) {
 	bench.Gates = []Gate{}
 	bench.FFs = []Gate{}
 	bench.portMap = make(map[string]*Port)
-	bench.nextStates = make(map[string][]Action)
-	bench.prevStates = make(map[string][]Action)
+	bench.nextStates = make(map[string][]string)
 
 	bench.Inputs = []*Port{}
 	bench.Outputs = []*Port{}
@@ -253,101 +249,59 @@ func (b *Bench) Summary() string {
 	return buffer.String()
 }
 
-func (b *Bench) IsReachable() bool {
-	initState := strings.Repeat("0", len(b.FFs))
-	statesToCheck := []string{initState}
-	for {
-		var state string
-		state, statesToCheck = statesToCheck[0], statesToCheck[1:]
-		reachable := b.reachableStates(state)
-		b.nextStates[state] = reachable
-		fmt.Println(state)
-		// Add all our new, reachable states
-		for _, a := range reachable {
-			// Check if newly found state is goal
-			if a.State == b.Goal {
-				return true
+func (b *Bench) ReachableStates() []string {
+	var states []string
+	added := make(map[string]bool)
+	c := make(chan bool, 1)
+
+	go func() {
+		initState := strings.Repeat("0", len(b.FFs))
+		statesToCheck := []string{initState}
+		for {
+			var state string
+			state, statesToCheck = statesToCheck[0], statesToCheck[1:]
+			reachable := b.reachableFromState(state)
+			// Add all our new, reachable states
+			for _, s := range reachable {
+				// If we haven't seen it yet, add it to our list to check and note that
+				// we've seen it
+				if _, ok := added[s]; !ok {
+					statesToCheck = append(statesToCheck, s)
+					added[s] = true
+				}
+			}
+
+			if len(statesToCheck) == 0 {
+				break
 			}
 		}
+		c <- true
+	}()
 
-		if len(statesToCheck) == 0 {
-			break
-		}
+	select {
+	case <-c:
+		// Results
+	case <-time.After(time.Minute * 10):
+		//Timeout
 	}
-	return false
-}
 
-func (b *Bench) ReachableStates() []string {
-	b.isReachableWithActions() //To load the states
-	states := make([]string, len(b.nextStates))
+	states = make([]string, len(added))
 	i := 0
-	for state := range b.nextStates {
+	for state := range added {
 		states[i] = state
 		i++
 	}
 	return states
 }
 
-func (b *Bench) isReachableWithActions() bool {
-	initState := strings.Repeat("0", len(b.FFs))
-	statesToCheck := []string{initState}
-	added := make(map[string]bool)
-	for {
-		var state string
-		state, statesToCheck = statesToCheck[0], statesToCheck[1:]
-		reachable := b.reachableStatesWithActions(state)
-		b.nextStates[state] = reachable
-		// Add all our new, reachable states
-		for _, a := range reachable {
-			// The previous state from this one was just the state we used to get
-			// over here in the first place
-			if actions, ok := b.prevStates[a.State]; ok {
-				b.prevStates[a.State] = append(actions, Action{State: state, Inputs: a.Inputs})
-			} else {
-				b.prevStates[a.State] = []Action{Action{State: state, Inputs: a.Inputs}}
-			}
-			// Check if newly found state is goal
-			if a.State == b.Goal {
-				return true
-			}
-
-			if _, ok := added[a.State]; !ok {
-				statesToCheck = append(statesToCheck, a.State)
-				added[a.State] = true
-			}
-		}
-
-		if len(statesToCheck) == 0 {
-			break
-		}
-	}
-	return false
-}
-
-func (b *Bench) PossibleSolution() ([]Action, error) {
-	if !b.isReachableWithActions() {
-		return []Action{}, errors.New("No solution found")
-	}
-
-	action := b.prevStates[b.Goal][0]
-	actions := []Action{action}
-
-	initState := strings.Repeat("0", len(b.FFs))
-	for action.State != initState {
-		action = b.prevStates[action.State][0]
-		actions = append(actions, action)
-	}
-	return actions, nil
-}
-
 // Given a state, returns a list of what states you can reach in 1-step
-func (b *Bench) reachableStates(state string) []Action {
+func (b *Bench) reachableFromState(state string) []string {
 	// If there are n inputs, there are 2^n combinations of those inputs
 	c := int(math.Pow(float64(2), float64(len(b.Inputs))))
 	if states, ok := b.nextStates[state]; ok {
 		return states
 	}
-	states := []Action{}
+	states := []string{}
 	found := make(map[string]bool)
 	for i := 0; i < c; i++ {
 		// A bit mask padded with zeroes
@@ -362,39 +316,7 @@ func (b *Bench) reachableStates(state string) []Action {
 		// If we haven't seen this nextState yet
 		if _, ok := found[nextState]; !ok {
 			found[nextState] = true
-			states = append(states, Action{State: nextState})
-		}
-	}
-	return states
-}
-
-// Given a state, returns a list of what states you can reach in 1-step, and
-// the inputs that will give you them
-func (b *Bench) reachableStatesWithActions(state string) []Action {
-	// If there are n inputs, there are 2^n combinations of those inputs
-	c := int(math.Pow(float64(2), float64(len(b.Inputs))))
-	if states, ok := b.nextStates[state]; ok {
-		return states
-	}
-	states := []Action{}
-	found := make(map[string]int)
-	for i := 0; i < c; i++ {
-		// A bit mask padded with zeroes
-		mask := fmt.Sprintf("%0"+strconv.Itoa(len(b.Inputs))+"b", i)
-		b.resetPorts()
-		b.setInputs(mask)
-		b.setState(state)
-		// Run the circuit
-		b.run()
-		// nextState is the state we've reached by running our sim
-		nextState := b.State()
-		if stateLoc, ok := found[nextState]; ok {
-			// Add this input to the list
-			states[stateLoc].Inputs = append(states[stateLoc].Inputs, mask)
-		} else {
-			fmt.Println("Found", nextState)
-			found[nextState] = len(states)
-			states = append(states, Action{State: nextState, Inputs: []string{mask}})
+			states = append(states, nextState)
 		}
 	}
 	return states
