@@ -3,7 +3,10 @@ package bench
 import (
 	"bufio"
 	"bytes"
+	"errors"
+	"flag"
 	"fmt"
+	"io/ioutil"
 	"math"
 	"os"
 	"regexp"
@@ -25,8 +28,20 @@ import (
 // V2, DFF, V1
 // V3, DFF, V0
 // And this is all we need to build up our network
+const (
+	NONE = iota
+	DEBUG
+	VERBOSE
+)
+
 var gateRE = regexp.MustCompile(`^(\w+)\s*=\s*(\w+)\((\w+)(?:,(\w+))*\)$`)
 var inOutRE = regexp.MustCompile(`^(\w+)\((\w+)\)$`)
+var verbose int
+
+func init() {
+	flag.IntVar(&verbose, "v", NONE, "level of verboseness in output")
+	flag.Parse()
+}
 
 type Bench struct {
 	// PortMap is a map from names in a bench file to their
@@ -50,9 +65,11 @@ type Bench struct {
 	FFs   []Gate
 
 	States []string
+	Goal   string
 }
 
-func NewFromFile(filename string) *Bench {
+func NewFromFile(filename string) (*Bench, error) {
+	debugStatement("Creating bench", VERBOSE)
 	bench := new(Bench)
 
 	bench.Gates = []Gate{}
@@ -63,10 +80,15 @@ func NewFromFile(filename string) *Bench {
 
 	bench.Inputs = []*Port{}
 	bench.Outputs = []*Port{}
-
-	file, err := os.Open(filename)
+	goalState, err := ioutil.ReadFile(filename + ".state")
 	if err != nil {
-		fmt.Println(err)
+		return bench, err
+	}
+	bench.Goal = strings.TrimSpace(string(goalState))
+
+	file, err := os.Open(filename + ".bench")
+	if err != nil {
+		return bench, err
 	}
 
 	defer file.Close()
@@ -79,9 +101,9 @@ func NewFromFile(filename string) *Bench {
 	}
 
 	if err := scanner.Err(); err != nil {
-		fmt.Println(err)
+		return bench, err
 	}
-	return bench
+	return bench, nil
 }
 
 func (b *Bench) ParseLine(line string) {
@@ -231,7 +253,7 @@ func (b *Bench) Summary() string {
 	return buffer.String()
 }
 
-func (b *Bench) IsReachable(goal string) bool {
+func (b *Bench) IsReachable() bool {
 	// Initial state is all zeroes
 	initState := strings.Repeat("0", len(b.FFs))
 	statesToCheck := []string{initState}
@@ -251,7 +273,7 @@ func (b *Bench) IsReachable(goal string) bool {
 				b.prevStates[a.State] = []Action{Action{State: state, Inputs: a.Inputs}}
 			}
 			// Check if newly found state is goal
-			if a.State == goal {
+			if a.State == b.Goal {
 				return true
 			}
 
@@ -268,15 +290,26 @@ func (b *Bench) IsReachable(goal string) bool {
 	return false
 }
 
-func (b *Bench) PossibleSolution(end string) []Action {
-	action := b.prevStates[end][0]
-	actions := []Action{action}
-	initState := strings.Repeat("0", len(b.FFs))
-	for action.State != initState {
-		actions = append(actions, action)
-		action = b.prevStates[action.State][0]
+func (b *Bench) PossibleSolution() ([]Action, error) {
+	var actions []Action
+	var action Action
+	if prev, ok := b.prevStates[b.Goal]; ok {
+		action = prev[0]
+	} else {
+		return []Action{}, errors.New("No solution found")
 	}
-	return actions
+
+	initState := strings.Repeat("0", len(b.FFs))
+	actions = append(actions, action)
+	for action.State != initState {
+		if prev, ok := b.prevStates[action.State]; ok {
+			action = prev[0]
+		} else {
+			return []Action{}, errors.New("No solution found")
+		}
+		actions = append(actions, action)
+	}
+	return actions, nil
 }
 
 // Given a state, returns a list of what states you can reach in 1-step, and
@@ -402,5 +435,11 @@ func clearPorts(ports []*Port) {
 	for _, port := range ports {
 		port.on = false
 		port.ready = false
+	}
+}
+
+func debugStatement(statement string, level int) {
+	if level <= verbose {
+		fmt.Println(statement)
 	}
 }

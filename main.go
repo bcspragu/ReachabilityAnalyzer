@@ -3,10 +3,12 @@ package main
 import (
 	"./bench"
 	"fmt"
+	"os"
 )
 
 func main() {
-	b := bench.NewFromFile("ex2.bench")
-	fmt.Println(b.IsReachable("111111111111111"))
-	fmt.Println(b.PossibleSolution("111111111111111"))
+	b, _ := bench.NewFromFile(os.Args[1])
+	fmt.Println(b.IsReachable())
+	sol, err := b.PossibleSolution()
+	fmt.Println(sol, err)
 }
