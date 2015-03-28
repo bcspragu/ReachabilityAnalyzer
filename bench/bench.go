@@ -36,54 +36,42 @@ const (
 
 var gateRE = regexp.MustCompile(`^(\w+)\s*=\s*(\w+)\((\w+)\s*(?:,\s*(\w+))?\)$`)
 var inOutRE = regexp.MustCompile(`^(\w+)\((\w+)\)$`)
+var nRunner int
 var verbose int
 
 func init() {
 	flag.IntVar(&verbose, "v", NONE, "level of verboseness in output")
+	flag.IntVar(&nRunner, "runners", NONE, "How many ")
 }
 
 type Bench struct {
+	runners []*runner
 	// PortMap is a map from names in a bench file to their
 	// corresponding port objects
-	portMap map[string]*Port
-	// NextStates is a map from a state string to all of the
-	// states that can be reached from it, and what inputs are
-	// needed to reach them
 	nextStates map[string][]string
 
-	lastPortID int
-	lastGateID int
-
-	Inputs  []*Port
-	Outputs []*Port
-
-	Gates []Gate
-	FFs   []Gate
-
-	States []string
-	Goal   string
+	Goal string
 }
 
 func NewFromFile(filename string) (*Bench, error) {
 	debugStatement("Creating bench", VERBOSE)
 	bench := new(Bench)
-
-	bench.Gates = []Gate{}
-	bench.FFs = []Gate{}
-	bench.portMap = make(map[string]*Port)
 	bench.nextStates = make(map[string][]string)
+	bench.runners = make([]*runner, nRunner)
 
-	bench.Inputs = []*Port{}
-	bench.Outputs = []*Port{}
 	goalState, err := ioutil.ReadFile(filename + ".state")
 	if err != nil {
 		return bench, err
 	}
 	bench.Goal = strings.TrimSpace(string(goalState))
 
+	for i := 0; i < nRunner; i++ {
+		bench.runners[i] = newRunner()
+	}
+
 	file, err := os.Open(filename + ".bench")
 	if err != nil {
-		return bench, err
+		return nil, err
 	}
 
 	defer file.Close()
@@ -92,28 +80,41 @@ func NewFromFile(filename string) (*Bench, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		line = strings.TrimSpace(line)
-		bench.ParseLine(line)
+		for i := 0; i < nRunner; i++ {
+			bench.runners[i].ParseLine(line)
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return bench, err
+		return nil, err
 	}
-	debugStatement(fmt.Sprint("Bench created with ", len(bench.Gates), " gates"), DEBUG)
+
 	return bench, nil
 }
 
-func (b *Bench) ParseLine(line string) {
+func newRunner() *runner {
+	r := new(runner)
+	r.Gates = []Gate{}
+	r.FFs = []Gate{}
+	r.portMap = make(map[string]*Port)
+
+	r.Inputs = []*Port{}
+	r.Outputs = []*Port{}
+	return r
+}
+
+func (r *runner) ParseLine(line string) {
 	matches := gateRE.FindStringSubmatch(line)
 	// If we have matches, it's a gate statement
 	if len(matches) > 0 {
 		out, gate := matches[1], matches[2]
 		switch gate {
 		case "AND":
-			b.AddAND(matches[3], matches[4], out)
+			r.AddAND(matches[3], matches[4], out)
 		case "NOT":
-			b.AddNOT(matches[3], out)
+			r.AddNOT(matches[3], out)
 		case "DFF":
-			b.AddDFF(matches[3], out)
+			r.AddDFF(matches[3], out)
 		}
 	} else {
 		// Otherwise, it's an input or output
@@ -122,77 +123,77 @@ func (b *Bench) ParseLine(line string) {
 			io, port := ioMatch[1], ioMatch[2]
 			switch io {
 			case "INPUT":
-				b.AddInput(port)
+				r.AddInput(port)
 			case "OUTPUT":
-				b.AddOutput(port)
+				r.AddOutput(port)
 			}
 		}
 	}
 }
 
-func (b *Bench) AddAND(in1, in2, out string) {
-	inPort1 := b.FindOrCreatePort(in1)
-	inPort2 := b.FindOrCreatePort(in2)
-	outPort := b.FindOrCreatePort(out)
+func (r *runner) AddAND(in1, in2, out string) {
+	inPort1 := r.FindOrCreatePort(in1)
+	inPort2 := r.FindOrCreatePort(in2)
+	outPort := r.FindOrCreatePort(out)
 
-	and := NewAND(b.nextGateID(), inPort1, inPort2, outPort)
-	b.Gates = append(b.Gates, and)
+	and := NewAND(r.nextGateID(), inPort1, inPort2, outPort)
+	r.Gates = append(r.Gates, and)
 }
 
-func (b *Bench) AddNOT(in, out string) {
-	b.addOneInputGate(in, out, NewNOT)
+func (r *runner) AddNOT(in, out string) {
+	r.addOneInputGate(in, out, NewNOT)
 }
 
-func (b *Bench) AddDFF(in, out string) {
-	gate := b.addOneInputGate(in, out, NewDFF)
-	b.FFs = append(b.FFs, gate)
+func (r *runner) AddDFF(in, out string) {
+	gate := r.addOneInputGate(in, out, NewDFF)
+	r.FFs = append(r.FFs, gate)
 }
 
-func (b *Bench) AddInput(p string) {
-	b.Inputs = append(b.Inputs, b.FindOrCreatePort(p))
+func (r *runner) AddInput(p string) {
+	r.Inputs = append(r.Inputs, r.FindOrCreatePort(p))
 }
 
-func (b *Bench) AddOutput(p string) {
-	b.Outputs = append(b.Outputs, b.FindOrCreatePort(p))
+func (r *runner) AddOutput(p string) {
+	r.Outputs = append(r.Outputs, r.FindOrCreatePort(p))
 }
 
-func (b *Bench) addOneInputGate(in, out string, newGate func(int, *Port, *Port) Gate) Gate {
-	inPort := b.FindOrCreatePort(in)
-	outPort := b.FindOrCreatePort(out)
+func (r *runner) addOneInputGate(in, out string, newGate func(int, *Port, *Port) Gate) Gate {
+	inPort := r.FindOrCreatePort(in)
+	outPort := r.FindOrCreatePort(out)
 
-	gate := newGate(b.nextGateID(), inPort, outPort)
-	b.Gates = append(b.Gates, gate)
+	gate := newGate(r.nextGateID(), inPort, outPort)
+	r.Gates = append(r.Gates, gate)
 	return gate
 }
 
-func (b *Bench) FindOrCreatePort(name string) *Port {
-	if port, ok := b.portMap[name]; ok {
+func (r *runner) FindOrCreatePort(name string) *Port {
+	if port, ok := r.portMap[name]; ok {
 		// Port exists
 		return port
 	}
 	// Create the port if it doesn't exist, using the next
 	// available sequential id
-	port := NewPort(b.nextPortID())
-	b.portMap[name] = port
+	port := NewPort(r.nextPortID())
+	r.portMap[name] = port
 	return port
 }
 
-func (b *Bench) nextPortID() int {
-	b.lastPortID++
-	return b.lastPortID
+func (r *runner) nextPortID() int {
+	r.lastPortID++
+	return r.lastPortID
 }
 
-func (b *Bench) nextGateID() int {
-	b.lastGateID++
-	return b.lastGateID
+func (r *runner) nextGateID() int {
+	r.lastGateID++
+	return r.lastGateID
 }
 
-func (b *Bench) State() string {
+func (r *runner) State() string {
 	// One character for each flip flop
-	buf := make([]byte, 0, len(b.FFs))
+	buf := make([]byte, 0, len(r.FFs))
 	buffer := bytes.NewBuffer(buf)
 
-	for _, dff := range b.FFs {
+	for _, dff := range r.FFs {
 		if dff.Inputs()[0].on {
 			buffer.WriteString("1")
 		} else {
@@ -203,10 +204,10 @@ func (b *Bench) State() string {
 	return buffer.String()
 }
 
-func (b *Bench) Summary() string {
+func (r *runner) Summary() string {
 	var buffer bytes.Buffer
 
-	for _, i := range b.Inputs {
+	for _, i := range r.Inputs {
 		buffer.WriteString(fmt.Sprintln("Input", i.ID()))
 		for _, conn := range i.Conns() {
 			// Go through the inputs of the connection and find
@@ -219,7 +220,7 @@ func (b *Bench) Summary() string {
 		}
 	}
 
-	for _, o := range b.Outputs {
+	for _, o := range r.Outputs {
 		buffer.WriteString(fmt.Sprintln("Output", o.ID()))
 		for _, conn := range o.Conns() {
 			// Go through the inputs of the connection and find
@@ -232,7 +233,7 @@ func (b *Bench) Summary() string {
 		}
 	}
 
-	for _, gate := range b.Gates {
+	for _, gate := range r.Gates {
 		switch gate.Type() {
 		case "AND":
 			and := gate.(*And)
@@ -249,18 +250,18 @@ func (b *Bench) Summary() string {
 	return buffer.String()
 }
 
-func (b *Bench) ReachableStates() []string {
+func (r *runner) ReachableStates() []string {
 	var states []string
 	added := make(map[string]bool)
 	c := make(chan bool, 1)
 
 	go func() {
-		initState := strings.Repeat("0", len(b.FFs))
+		initState := strings.Repeat("0", len(r.FFs))
 		statesToCheck := []string{initState}
 		for {
 			var state string
 			state, statesToCheck = statesToCheck[0], statesToCheck[1:]
-			reachable := b.reachableFromState(state)
+			reachable := r.reachableFromState(state)
 			// Add all our new, reachable states
 			for _, s := range reachable {
 				// If we haven't seen it yet, add it to our list to check and note that
@@ -295,24 +296,24 @@ func (b *Bench) ReachableStates() []string {
 }
 
 // Given a state, returns a list of what states you can reach in 1-step
-func (b *Bench) reachableFromState(state string) []string {
+func (r *runner) reachableFromState(state string) []string {
 	// If there are n inputs, there are 2^n combinations of those inputs
-	c := int(math.Pow(float64(2), float64(len(b.Inputs))))
-	if states, ok := b.nextStates[state]; ok {
+	c := int(math.Pow(float64(2), float64(len(r.Inputs))))
+	if states, ok := r.b.nextStates[state]; ok {
 		return states
 	}
 	states := []string{}
 	found := make(map[string]bool)
 	for i := 0; i < c; i++ {
 		// A bit mask padded with zeroes
-		mask := fmt.Sprintf("%0"+strconv.Itoa(len(b.Inputs))+"b", i)
-		b.resetPorts()
-		b.setInputs(mask)
-		b.setState(state)
+		mask := fmt.Sprintf("%0"+strconv.Itoa(len(r.Inputs))+"b", i)
+		r.resetPorts()
+		r.setInputs(mask)
+		r.setState(state)
 		// Run the circuit
-		b.run()
+		r.run()
 		// nextState is the state we've reached by running our sim
-		nextState := b.State()
+		nextState := r.State()
 		// If we haven't seen this nextState yet
 		if _, ok := found[nextState]; !ok {
 			found[nextState] = true
@@ -323,13 +324,13 @@ func (b *Bench) reachableFromState(state string) []string {
 }
 
 // Run through a single step of the circuit
-func (b *Bench) run() {
+func (r *runner) run() {
 	gatesToCheck := []Gate{}
-	gateCheck := make([]bool, len(b.Gates))
+	gateCheck := make([]bool, len(r.Gates))
 	gateIndex := 0
 
 	// Our inputs are all ready
-	for _, in := range b.Inputs {
+	for _, in := range r.Inputs {
 		in.ready = true
 		for _, conn := range in.conns {
 			if conn.Type() != "DFF" && !gateCheck[conn.ID()-1] {
@@ -340,7 +341,7 @@ func (b *Bench) run() {
 	}
 
 	// Our state gates are all ready
-	for _, g := range b.FFs {
+	for _, g := range r.FFs {
 		out := g.Outputs()[0]
 		out.ready = true
 		for _, conn := range out.conns {
@@ -375,29 +376,29 @@ func (b *Bench) run() {
 	}
 }
 
-func (b *Bench) setInputs(mask string) {
+func (r *runner) setInputs(mask string) {
 	for i, bit := range mask {
-		b.Inputs[i].on = bit == '1'
+		r.Inputs[i].on = bit == '1'
 	}
 }
 
-func (b *Bench) setState(mask string) {
+func (r *runner) setState(mask string) {
 	for i, bit := range mask {
-		b.FFs[i].Outputs()[0].on = bit == '1'
+		r.FFs[i].Outputs()[0].on = bit == '1'
 	}
 }
 
-func (b *Bench) setOutputs(mask string) {
+func (r *runner) setOutputs(mask string) {
 	for i, bit := range mask {
-		b.Outputs[i].on = bit == '1'
+		r.Outputs[i].on = bit == '1'
 	}
 }
 
-func (b *Bench) resetPorts() {
-	clearPorts(b.Inputs)
-	clearPorts(b.Outputs)
+func (r *runner) resetPorts() {
+	clearPorts(r.Inputs)
+	clearPorts(r.Outputs)
 
-	for _, gate := range b.Gates {
+	for _, gate := range r.Gates {
 		clearPorts(gate.Inputs())
 		clearPorts(gate.Outputs())
 	}
