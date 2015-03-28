@@ -11,5 +11,5 @@ func main() {
 	flag.Parse()
 
 	b, _ := bench.NewFromFile(*input)
-	fmt.Println(b.ReachableStates())
+	fmt.Println(b.IsReachable())
 }

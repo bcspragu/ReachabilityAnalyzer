@@ -6,7 +6,7 @@ import (
 
 func (b *Bench) AsSat(in, out string, unroll int) pigosat.Formula {
 	clauses := []pigosat.Clause{}
-	for _, gate := range b.Gates {
+	for _, gate := range b.runners[0].Gates {
 		switch gate.Type() {
 		case "AND":
 
