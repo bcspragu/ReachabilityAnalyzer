@@ -2,6 +2,7 @@ package bench
 
 import (
 	"bufio"
+	"bytes"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -35,10 +36,12 @@ const (
 
 var nRunner int
 var verbose int
+var unroll int
 
 func init() {
 	flag.IntVar(&verbose, "v", NONE, "level of verboseness in output")
-	flag.IntVar(&nRunner, "runners", 10, "How many processes to simultaneously calculate state")
+	flag.IntVar(&nRunner, "runners", 10, "how many processes to simultaneously calculate state")
+	flag.IntVar(&unroll, "unroll", 2, "how many times to unroll the formula")
 }
 
 type Bench struct {
@@ -47,12 +50,13 @@ type Bench struct {
 	// corresponding port objects
 	nextStates map[string][]State
 
-	Goal string
+	Goal   string
+	unroll int
 }
 
 func NewFromFile(filename string) (*Bench, error) {
 	debugStatement("Creating bench", VERBOSE)
-	bench := new(Bench)
+	bench := &Bench{unroll: unroll}
 	bench.nextStates = make(map[string][]State)
 	bench.runners = make([]*runner, nRunner)
 
@@ -190,4 +194,12 @@ func debugStatement(statement string, level int) {
 	if level <= verbose {
 		fmt.Println(statement)
 	}
+}
+
+func (b *Bench) PortMap() string {
+	var buf bytes.Buffer
+	for name, port := range b.runners[0].portMap {
+		buf.WriteString(fmt.Sprintln(name, "-", port.id))
+	}
+	return buf.String()
 }

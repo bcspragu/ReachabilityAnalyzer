@@ -4,6 +4,7 @@ import (
 	"./bench"
 	"flag"
 	"fmt"
+	"os"
 )
 
 func main() {
@@ -11,5 +12,7 @@ func main() {
 	flag.Parse()
 
 	b, _ := bench.NewFromFile(*input)
-	fmt.Println(b.IsReachable())
+	file, _ := os.Create("satty.sat")
+	fmt.Println(b.PortMap())
+	fmt.Println(b.SatToFile(file))
 }
