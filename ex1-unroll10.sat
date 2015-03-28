@@ -1,0 +1,36 @@
+p cnf 14 30
+c Initial conditions
+-6 0
+-7 0
+c Unrolling number 1
+1 -4 0
+3 -4 0
+-1 -3 4 0
+-3 -5 0
+3 5 0
+6 -3 0
+7 -3 0
+-6 -7 3 0
+1 -2 0
+3 -2 0
+-1 -3 2 0
+c Connections between unrolling number 1 and unrolling number 2
+5 -13 0
+-5 13 0
+4 -14 0
+-4 14 0
+c Unrolling number 2
+8 -11 0
+10 -11 0
+-8 -10 11 0
+-10 -12 0
+10 12 0
+13 -10 0
+14 -10 0
+-13 -14 10 0
+8 -9 0
+10 -9 0
+-8 -10 9 0
+c Goal conditions
+12 0
+-11 0

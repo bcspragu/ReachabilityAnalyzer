@@ -62,7 +62,7 @@ func NewFromFile(filename string) (*Bench, error) {
 
 	goalState, err := ioutil.ReadFile(filename + ".state")
 	if err != nil {
-		return bench, err
+		return nil, err
 	}
 	bench.Goal = strings.TrimSpace(string(goalState))
 
@@ -202,4 +202,8 @@ func (b *Bench) PortMap() string {
 		buf.WriteString(fmt.Sprintln(name, "-", port.id))
 	}
 	return buf.String()
+}
+
+func (b *Bench) SetUnroll(unroll int) {
+	b.unroll = unroll
 }

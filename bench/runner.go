@@ -12,6 +12,7 @@ import (
 type runner struct {
 	id      int
 	portMap map[string]*Port
+	satMap  map[int]string
 	// NextStates is a map from a state string to all of the
 	// states that can be reached from it, and what inputs are
 	// needed to reach them
@@ -41,6 +42,7 @@ func newRunner(id int) *runner {
 	r.Gates = []Gate{}
 	r.FFs = []Gate{}
 	r.portMap = make(map[string]*Port)
+	r.satMap = make(map[int]string)
 
 	r.Inputs = []*Port{}
 	r.Outputs = []*Port{}
@@ -119,6 +121,7 @@ func (r *runner) FindOrCreatePort(name string) *Port {
 	// available sequential id
 	port := NewPort(r.nextPortID())
 	r.portMap[name] = port
+	r.satMap[port.id] = name
 	return port
 }
 

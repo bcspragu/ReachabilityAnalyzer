@@ -4,7 +4,8 @@ import (
 	"./bench"
 	"flag"
 	"fmt"
-	"os"
+	//"io/ioutil"
+	//"os"
 )
 
 func main() {
@@ -12,7 +13,8 @@ func main() {
 	flag.Parse()
 
 	b, _ := bench.NewFromFile(*input)
-	file, _ := os.Create("satty.sat")
-	fmt.Println(b.PortMap())
-	fmt.Println(b.SatToFile(file))
+	fmt.Println("Symbolic:", b.IsSat())
+
+	//b, _ := bench.NewFromFile("bench/ex1")
+	//fmt.Println(b.ReachableStates())
 }
