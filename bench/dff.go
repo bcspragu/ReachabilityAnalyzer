@@ -5,7 +5,7 @@ type Dff struct {
 }
 
 func (d *Dff) SetOut() {
-	d.o.on = d.i.on
+	// NOP
 }
 
 func NewDFF(id int, in, out *Port) Gate {

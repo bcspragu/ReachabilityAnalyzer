@@ -193,50 +193,52 @@ func (r *runner) reachableFromState(inStates <-chan string, foundStates chan<- N
 func (r *runner) run() {
 	gatesToCheck := []Gate{}
 	gateCheck := make([]bool, len(r.Gates))
-	gateIndex := 0
+
+	ffConn := make(map[*Port]int)
 
 	// Our inputs are all ready
 	for _, in := range r.Inputs {
 		in.ready = true
 		for _, conn := range in.conns {
 			if conn.Type() != "DFF" && !gateCheck[conn.ID()-1] {
-				gateCheck[conn.ID()-1] = true
-				gatesToCheck = append(gatesToCheck, conn)
-			}
-		}
-	}
-
-	// Our state gates are all ready
-	for _, g := range r.FFs {
-		out := g.Outputs()[0]
-		out.ready = true
-		for _, conn := range out.conns {
-			if conn.Type() != "DFF" && !gateCheck[conn.ID()-1] {
-				gateCheck[conn.ID()-1] = true
-				gatesToCheck = append(gatesToCheck, conn)
-			}
-		}
-	}
-
-	for {
-		if inputsReady(gatesToCheck[gateIndex]) {
-			// Pop off the gate
-			var gate Gate
-			gate, gatesToCheck = gatesToCheck[0], gatesToCheck[1:]
-			gate.SetOut()
-			gate.Outputs()[0].ready = true
-			//debugStatement(fmt.Sprint("Looking at gate ID ", gate.ID(), " of type ", gate.Type(), " setting output to ", gate.Outputs()[0].on, " based on inputs ", gate.Inputs()[0].on), DEBUG)
-			for _, conn := range gate.Outputs()[0].conns {
-				// If  we have a new gate that hasn't been checked and isn't a DFF
-				if conn.Type() != "DFF" && !gateCheck[conn.ID()-1] {
+				if inputsReady(conn) {
 					gateCheck[conn.ID()-1] = true
 					gatesToCheck = append(gatesToCheck, conn)
 				}
 			}
 		}
-		if len(gatesToCheck) > 0 {
-			gateIndex = (gateIndex + 1) % len(gatesToCheck)
-		} else {
+	}
+
+	// Our state gates are all ready
+	for i, g := range r.FFs {
+		ffConn[g.Inputs()[0]] = i + 1
+		out := g.Outputs()[0]
+		out.ready = true
+		for _, conn := range out.conns {
+			if conn.Type() != "DFF" && !gateCheck[conn.ID()-1] {
+				if inputsReady(conn) {
+					gateCheck[conn.ID()-1] = true
+					gatesToCheck = append(gatesToCheck, conn)
+				}
+			}
+		}
+	}
+	for {
+		// Pop off the gate
+		var gate Gate
+		gate, gatesToCheck = gatesToCheck[0], gatesToCheck[1:]
+		gate.SetOut()
+		gate.Outputs()[0].ready = true
+		for _, conn := range gate.Outputs()[0].conns {
+			// If  we have a new gate that hasn't been checked
+			if conn.Type() != "DFF" && !gateCheck[conn.ID()-1] {
+				if inputsReady(conn) {
+					gateCheck[conn.ID()-1] = true
+					gatesToCheck = append(gatesToCheck, conn)
+				}
+			}
+		}
+		if len(gatesToCheck) == 0 {
 			break
 		}
 	}
@@ -264,8 +266,15 @@ func (r *runner) resetPorts() {
 	clearPorts(r.Inputs)
 	clearPorts(r.Outputs)
 
-	for _, gate := range r.Gates {
-		clearPorts(gate.Inputs())
-		clearPorts(gate.Outputs())
+	for _, port := range r.portMap {
+		port.on = false
+		port.ready = false
+	}
+}
+
+func clearPorts(ports []*Port) {
+	for _, port := range ports {
+		port.on = false
+		port.ready = false
 	}
 }

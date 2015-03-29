@@ -13,8 +13,7 @@ func main() {
 	flag.Parse()
 
 	b, _ := bench.NewFromFile(*input)
-	fmt.Println("Symbolic:", b.IsSat())
 
-	//b, _ := bench.NewFromFile("bench/ex1")
-	//fmt.Println(b.ReachableStates())
+	fmt.Println("Symbolic:", b.IsSat())
+	fmt.Println("Reachable:", b.IsReachable())
 }

@@ -104,13 +104,6 @@ func inputsReady(g Gate) bool {
 	return true
 }
 
-func clearPorts(ports []*Port) {
-	for _, port := range ports {
-		port.on = false
-		port.ready = false
-	}
-}
-
 func (b *Bench) ReachableStates() []string {
 	return b.reachableStates(func(s string) bool {
 		return false
@@ -206,4 +199,15 @@ func (b *Bench) PortMap() string {
 
 func (b *Bench) SetUnroll(unroll int) {
 	b.unroll = unroll
+}
+
+func (b *Bench) NextState(state, input string) string {
+	r := b.runners[0]
+	r.resetPorts()
+	r.setInputs(input)
+	r.setState(state)
+	// Run the circuit
+	r.run()
+	// nextState is the state we've reached by running our sim
+	return r.State()
 }

@@ -55,19 +55,37 @@ func (b *Bench) IsSat() bool {
 	return false
 }
 
+type GateType struct {
+	Input   bool
+	State   bool
+	Initial bool
+}
+
 func (b *Bench) parseOutput(out string) string {
+	// SatMap maps from ids to gate names, for more verbose output
 	ports := b.runners[0].satMap
-	relevantIDs := make(map[int]string)
+	relevantIDs := make(map[int]GateType)
 	inputState := make([]string, b.unroll)
-	gateState := make([]string, b.unroll)
+	gateState := make([]string, b.unroll+1) // The plus 1 accounts for initial state
 
 	for _, in := range b.runners[0].Inputs {
-		relevantIDs[in.ID()] = "Input"
+		gt := relevantIDs[in.ID()]
+		gt.Input = true
+		relevantIDs[in.ID()] = gt
 	}
 
 	for _, g := range b.runners[0].FFs {
-		relevantIDs[g.Inputs()[0].ID()] = "State"
+		gt := relevantIDs[g.Inputs()[0].ID()]
+		gt.State = true
+		relevantIDs[g.Inputs()[0].ID()] = gt
 	}
+
+	for _, g := range b.runners[0].FFs {
+		gt := relevantIDs[g.Outputs()[0].ID()]
+		gt.Initial = true
+		relevantIDs[g.Outputs()[0].ID()] = gt
+	}
+
 	portCount := len(ports)
 	// First we remove the first line, which deals with satisfiability
 	res := strings.Split(out, "\n")[1:]
@@ -76,26 +94,39 @@ func (b *Bench) parseOutput(out string) string {
 		for _, s := range sp {
 			n, _ := strconv.Atoi(s)
 			originalID := ((abs(n) - 1) % portCount) + 1
-			gate, ok := ports[originalID]
+			_, ok := ports[originalID]
 			unrolling := ((abs(n) - 1) / portCount)
 			if ok {
-				bit := " on"
+				bit := "0"
 				if n > 0 {
-					bit = " off"
+					bit = "1"
 				}
 
-				kind := relevantIDs[originalID]
-				if kind == "Input" {
-					inputState[unrolling] += " " + gate + bit
-				} else if kind == "State" {
-					gateState[unrolling] += " " + gate + bit
+				gt := relevantIDs[originalID]
+				if gt.Input {
+					inputState[unrolling] += bit
+				}
+
+				if gt.State {
+					gateState[unrolling+1] += bit
+				}
+
+				// The ID check makes sure that it's the first unrolling
+				if gt.Initial && abs(n) == originalID {
+					gateState[unrolling] += bit
 				}
 			}
 		}
 	}
 	var buf bytes.Buffer
-	for i := range inputState {
-		buf.WriteString(fmt.Sprint("State", i+1, ":", inputState[i], gateState[i], "\n"))
+	for i := range gateState {
+		if i == 0 {
+			buf.WriteString(fmt.Sprint("Initial: ", gateState[i], " Inputs: ", inputState[i], "\n"))
+		} else if i < len(gateState)-1 {
+			buf.WriteString(fmt.Sprint("State ", i+1, ": ", gateState[i], " Inputs: ", inputState[i], "\n"))
+		} else {
+			buf.WriteString(fmt.Sprint("Final: ", gateState[i], "\n"))
+		}
 	}
 	return buf.String()
 }
