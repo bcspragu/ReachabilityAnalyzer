@@ -84,6 +84,22 @@ func NewFromFile(filename string) (*Bench, error) {
 		for i := 0; i < nRunner; i++ {
 			// TODO(bsprague): Do this more efficiently, so that you don't need to
 			// parse the same line nRunners times
+			bench.runners[i].count(line)
+		}
+	}
+
+	for _, r := range bench.runners {
+		r.setSize()
+	}
+
+	file.Seek(0, 0)
+	scanner = bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		line = strings.TrimSpace(line)
+		for i := 0; i < nRunner; i++ {
+			// TODO(bsprague): Do this more efficiently, so that you don't need to
+			// parse the same line nRunners times
 			bench.runners[i].ParseLine(line)
 		}
 	}
@@ -93,15 +109,6 @@ func NewFromFile(filename string) (*Bench, error) {
 	}
 
 	return bench, nil
-}
-
-func inputsReady(g Gate) bool {
-	for _, in := range g.Inputs() {
-		if !in.ready {
-			return false
-		}
-	}
-	return true
 }
 
 func (b *Bench) ReachableStates() []string {

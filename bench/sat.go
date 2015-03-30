@@ -34,7 +34,7 @@ func (c *Clause) string() string {
 	}
 }
 
-func (b *Bench) IsSat() bool {
+func (b *Bench) Sat() (bool, string) {
 	cmd := exec.Command("picosat")
 	cmd.Stdin = strings.NewReader(b.SatString())
 	var out bytes.Buffer
@@ -44,15 +44,14 @@ func (b *Bench) IsSat() bool {
 		if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
 			stat := status.ExitStatus()
 			if stat == 10 { // Satisfiable
-				fmt.Println(b.parseOutput(out.String()))
-				return true
+				return true, b.parseOutput(out.String())
 			} else if stat == 20 { // Unsatisfiable
-				return false
+				return false, ""
 			}
 		}
 	}
 	// Means we got an exit code of 0, which we weren't expecting
-	return false
+	return false, ""
 }
 
 type GateType struct {

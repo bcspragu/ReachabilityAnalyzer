@@ -14,6 +14,8 @@ func main() {
 
 	b, _ := bench.NewFromFile(*input)
 
-	fmt.Println("Symbolic:", b.IsSat())
-	fmt.Println("Reachable:", b.IsReachable())
+	sat, str := b.Sat()
+	fmt.Println("Symbolic:", sat)
+	fmt.Print(str)
+	//fmt.Println("Reachable:", b.IsReachable())
 }
