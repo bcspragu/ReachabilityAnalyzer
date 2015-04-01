@@ -44,7 +44,7 @@ func (b *Bench) Sat() (bool, string) {
 		if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
 			stat := status.ExitStatus()
 			if stat == 10 { // Satisfiable
-				return true, b.parseOutput(out.String())
+				return true, ""
 			} else if stat == 20 { // Unsatisfiable
 				return false, ""
 			}
@@ -54,80 +54,12 @@ func (b *Bench) Sat() (bool, string) {
 	return false, ""
 }
 
-type GateType struct {
-	Input   bool
-	State   bool
-	Initial bool
-}
-
-func (b *Bench) parseOutput(out string) string {
-	// SatMap maps from ids to gate names, for more verbose output
-	ports := b.runners[0].satMap
-	relevantIDs := make(map[int]GateType)
-	inputState := make([]string, b.unroll)
-	gateState := make([]string, b.unroll+1) // The plus 1 accounts for initial state
-
-	for _, in := range b.runners[0].Inputs {
-		gt := relevantIDs[in.ID()]
-		gt.Input = true
-		relevantIDs[in.ID()] = gt
-	}
-
-	for _, g := range b.runners[0].FFs {
-		gt := relevantIDs[g.Inputs()[0].ID()]
-		gt.State = true
-		relevantIDs[g.Inputs()[0].ID()] = gt
-	}
-
-	for _, g := range b.runners[0].FFs {
-		gt := relevantIDs[g.Outputs()[0].ID()]
-		gt.Initial = true
-		relevantIDs[g.Outputs()[0].ID()] = gt
-	}
-
-	portCount := len(ports)
-	// First we remove the first line, which deals with satisfiability
-	res := strings.Split(out, "\n")[1:]
-	for _, line := range res {
-		sp := strings.Split(line, " ")[1:]
-		for _, s := range sp {
-			n, _ := strconv.Atoi(s)
-			originalID := ((abs(n) - 1) % portCount) + 1
-			_, ok := ports[originalID]
-			unrolling := ((abs(n) - 1) / portCount)
-			if ok {
-				bit := "0"
-				if n > 0 {
-					bit = "1"
-				}
-
-				gt := relevantIDs[originalID]
-				if gt.Input {
-					inputState[unrolling] += bit
-				}
-
-				if gt.State {
-					gateState[unrolling+1] += bit
-				}
-
-				// The ID check makes sure that it's the first unrolling
-				if gt.Initial && abs(n) == originalID {
-					gateState[unrolling] += bit
-				}
-			}
-		}
-	}
-	var buf bytes.Buffer
-	for i := range gateState {
-		if i == 0 {
-			buf.WriteString(fmt.Sprint("Initial: ", gateState[i], " Inputs: ", inputState[i], "\n"))
-		} else if i < len(gateState)-1 {
-			buf.WriteString(fmt.Sprint("State ", i+1, ": ", gateState[i], " Inputs: ", inputState[i], "\n"))
-		} else {
-			buf.WriteString(fmt.Sprint("Final: ", gateState[i], "\n"))
-		}
-	}
-	return buf.String()
+type gateType struct {
+	input   bool
+	ff      bool
+	initial bool
+	and     bool
+	not     bool
 }
 
 func (b *Bench) SatString() string {
@@ -164,29 +96,32 @@ func expCount(clauses []Clause) int {
 
 func (b *Bench) asSat() []Clause {
 	clauses := b.initClauses()
-	gateCount := len(b.runners[0].portMap)
-	for i := 0; i < b.unroll; i++ {
+	portCount := len(b.portMap)
+	for i := 0; i < b.Unroll; i++ {
 		// The offset is the number of gates in each unrolling, times the cycle we're on
-		offset := gateCount * i
+		offset := portCount * i
 
 		// Add gates for each unrolling
 		clauses = addClauses(clauses, []Clause{commentClause("Unrolling number ", i+1)})
-		for _, gate := range b.runners[0].Gates {
-			switch gate.Type() {
-			case "AND":
-				clauses = addClauses(clauses, b.andClauses(gate, offset))
-			case "NOT":
-				clauses = addClauses(clauses, b.notClauses(gate, offset))
+		for id := range b.toOutputs {
+			// We don't set conditions on ports
+			if b.gateType[id].input {
+				continue
+			} else if b.gateType[id].and {
+				clauses = addClauses(clauses, b.andClauses(id, offset))
+			} else if b.gateType[id].not {
+				clauses = addClauses(clauses, b.notClauses(id, offset))
 			}
 		}
+
 		// Add connection constraint between unrollings, except the last one
-		if i != b.unroll-1 {
+		if i != b.Unroll-1 {
 			clauses = addClauses(clauses, []Clause{commentClause("Connections between unrolling number ", i+1, " and unrolling number ", i+2)})
-			for _, g := range b.runners[0].FFs {
+			for _, g := range b.ffs {
 				conn := make([]Clause, 2)
 
-				in := g.Inputs()[0].ID() + offset
-				out := g.Outputs()[0].ID() + offset + gateCount
+				in := b.ports[g].inputs[0] + offset
+				out := b.ports[g].output + offset + portCount
 
 				conn[0].Terms = []int{in, -out}
 				conn[1].Terms = []int{-in, out}
@@ -195,27 +130,26 @@ func (b *Bench) asSat() []Clause {
 		}
 	}
 
-	clauses = addClauses(clauses, b.endClauses(gateCount*(b.unroll-1)))
+	clauses = addClauses(clauses, b.endClauses(portCount*(b.Unroll-1)))
 	return clauses
 }
 
 func (b *Bench) initClauses() []Clause {
-	nFF := len(b.runners[0].FFs)
+	nFF := len(b.ffs)
 	clauses := make([]Clause, nFF+1)
 	clauses[0] = commentClause("Initial conditions")
-	for i, g := range b.runners[0].FFs {
-		clauses[i+1].Terms = []int{-g.Outputs()[0].ID()}
+	for i, g := range b.ffs {
+		clauses[i+1].Terms = []int{-b.ports[g].output}
 	}
 	return clauses
 }
 
 func (b *Bench) endClauses(offset int) []Clause {
-	nFF := len(b.runners[0].FFs)
-	ffs := b.runners[0].FFs
+	nFF := len(b.ffs)
 	clauses := make([]Clause, nFF+1)
 	clauses[0] = commentClause("Goal conditions")
 	for i, bit := range b.Goal {
-		literal := ffs[i].Inputs()[0].ID() + offset
+		literal := b.ports[b.ffs[i]].inputs[0] + offset
 
 		// Flip the bit if we want it off
 		if bit == '0' {
@@ -227,11 +161,11 @@ func (b *Bench) endClauses(offset int) []Clause {
 	return clauses
 }
 
-func (b *Bench) andClauses(g Gate, offset int) []Clause {
+func (b *Bench) andClauses(id, offset int) []Clause {
 	clauses := make([]Clause, 3)
-	in1 := g.Inputs()[0].ID() + offset
-	in2 := g.Inputs()[1].ID() + offset
-	out := g.Outputs()[0].ID() + offset
+	in1 := b.ports[id].inputs[0] + offset
+	in2 := b.ports[id].inputs[1] + offset
+	out := b.ports[id].output + offset
 
 	clauses[0].Terms = []int{in1, -out}
 	clauses[1].Terms = []int{in2, -out}
@@ -240,10 +174,10 @@ func (b *Bench) andClauses(g Gate, offset int) []Clause {
 	return clauses
 }
 
-func (b *Bench) notClauses(g Gate, offset int) []Clause {
+func (b *Bench) notClauses(id, offset int) []Clause {
 	clauses := make([]Clause, 2)
-	in := g.Inputs()[0].ID() + offset
-	out := g.Outputs()[0].ID() + offset
+	in := b.ports[id].inputs[0] + offset
+	out := b.ports[id].output + offset
 
 	clauses[0].Terms = []int{-in, -out}
 	clauses[1].Terms = []int{in, out}

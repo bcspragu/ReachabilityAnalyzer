@@ -4,11 +4,11 @@ import (
 	"./bench"
 	"flag"
 	"fmt"
-	//"io/ioutil"
-	//"os"
+	"runtime"
 )
 
 func main() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
 	input := flag.String("input", "bench/ex1", "bench file to parse")
 	flag.Parse()
 
@@ -17,5 +17,5 @@ func main() {
 	sat, str := b.Sat()
 	fmt.Println("Symbolic:", sat)
 	fmt.Print(str)
-	//fmt.Println("Reachable:", b.IsReachable())
+	fmt.Println("Reachable:", b.ReachableStates())
 }

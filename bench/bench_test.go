@@ -45,11 +45,14 @@ func BenchmarkIsReachableEx2Parallel(b *testing.B) {
 	runtime.GOMAXPROCS(prev)
 }
 
-func BenchmarkIsReachableEx3(b *testing.B) {
-	b.Skip("Currently too slow to test")
+func BenchmarkIsReachableEx3Parallel(b *testing.B) {
+	prev := runtime.GOMAXPROCS(runtime.NumCPU())
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		isReachable(b, "ex3")
 	}
+	b.StopTimer()
+	runtime.GOMAXPROCS(prev)
 }
 
 func BenchmarkRunLarge(b *testing.B) {
@@ -65,7 +68,7 @@ func TestRun(t *testing.T) {
 
 	bench, _ := NewFromFile("ex3")
 	if s := bench.NextState(init, input); s != exp {
-		t.Error("Expected %s, Got %s", exp, s)
+		t.Errorf("Expected %s, Got %s", exp, s)
 	}
 }
 
