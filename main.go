@@ -16,6 +16,7 @@ var (
 
 	explicit bool
 	symbolic bool
+	count    bool
 )
 
 func init() {
@@ -27,6 +28,7 @@ func init() {
 	flag.StringVar(&inputFile, "input", "bench/ex1", "bench file to parse")
 
 	flag.BoolVar(&explicit, "e", false, "run explicit search on the input file")
+	flag.BoolVar(&count, "c", false, "explicitly search for all reachable states and return a count")
 	flag.BoolVar(&symbolic, "s", false, "run symbolic search on the input file")
 
 	flag.Parse()
@@ -38,10 +40,24 @@ func main() {
 	b, _ := bench.NewFromFile(inputFile, nRunners)
 	b.LogLevel = logLevel
 	b.Unroll = nUnroll
-	if explicit {
+	if explicit && count {
+		reachable := b.ReachableStates()
+		var isReachable bool
+		for state := range reachable {
+			if state == b.Goal {
+				isReachable = true
+				break
+			}
+		}
+		fmt.Println("Explicitly Reachable:", isReachable)
+		fmt.Println("Total reachable states:", len(reachable))
+	} else if explicit && !count {
 		reachable, count := b.IsReachable()
 		fmt.Println("Explicitly Reachable:", reachable)
-		fmt.Println("Number of states found:", count)
+		fmt.Println("Number of states found before terminating:", count)
+	} else if count && !explicit {
+		reachable := b.ReachableStates()
+		fmt.Println("Total reachable states:", len(reachable))
 	}
 
 	if symbolic {

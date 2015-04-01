@@ -61,12 +61,30 @@ func BenchmarkRunLarge(b *testing.B) {
 	}
 }
 
+func BenchmarkEx2Sat(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		runSat(b, "ex2", 10)
+	}
+}
+
+func BenchmarkEx3Sat(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		runSat(b, "ex3", 10)
+	}
+}
+
+func BenchmarkEx4Sat(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		runSat(b, "ex4", 10)
+	}
+}
+
 func TestRun(t *testing.T) {
 	init := "00000000000000000000000000000"
 	input := "1111111111000111"
 	exp := "00110100010000010011000000100"
 
-	bench, _ := NewFromFile("ex3")
+	bench, _ := NewFromFile("ex3", 1)
 	if s := bench.NextState(init, input); s != exp {
 		t.Errorf("Expected %s, Got %s", exp, s)
 	}
@@ -74,18 +92,26 @@ func TestRun(t *testing.T) {
 
 func nextState(b *testing.B, in, state, input string) {
 	b.StopTimer()
-	bench, _ := NewFromFile(in)
+	bench, _ := NewFromFile(in, 1)
 	b.StartTimer()
 	bench.NextState(state, input)
 }
 
+func runSat(b *testing.B, in string, unroll int) {
+	b.StopTimer()
+	bench, _ := NewFromFile(in, 0)
+	bench.Unroll = unroll
+	b.StartTimer()
+	bench.Sat()
+}
+
 func isReachable(b *testing.B, in string) {
 	b.StopTimer()
-	bench, _ := NewFromFile(in)
+	bench, _ := NewFromFile(in, 10)
 	b.StartTimer()
 	bench.IsReachable()
 }
 
 func newBench(b *testing.B, in string) {
-	NewFromFile(in)
+	NewFromFile(in, 10)
 }
