@@ -40,7 +40,7 @@ func (r *runner) State() string {
 // Reads in states from inState channel, writes a list of what states you can reach in 1-step to foundStates
 func (r *runner) reachableFromState(inStates <-chan string, foundStates chan<- newState, searched chan<- bool) {
 	for state := range inStates {
-		debugStatement(fmt.Sprint("Runner ", r.id, " checking ", state), DEBUG)
+		r.b.debugStatement(fmt.Sprint("Runner ", r.id, " checking ", state), Debug)
 		// If there are n inputs, there are 2^n combinations of those inputs
 		c := int(math.Pow(float64(2), float64(r.b.inputCount)))
 
@@ -61,7 +61,7 @@ func (r *runner) reachableFromState(inStates <-chan string, foundStates chan<- n
 			if _, ok := found[nextState]; !ok {
 				found[nextState] = true
 				foundStates <- newState{state, State{nextState, mask}}
-				debugStatement(fmt.Sprint("Runner ", r.id, " found ", nextState), DEBUG)
+				r.b.debugStatement(fmt.Sprint("Runner ", r.id, " found ", nextState), Debug)
 			}
 		}
 		// Prevents a race condition between the foundStates and searched channels
@@ -72,7 +72,7 @@ func (r *runner) reachableFromState(inStates <-chan string, foundStates chan<- n
 		// Let the master know we've finished searching a state
 		searched <- true
 	}
-	debugStatement(fmt.Sprint("Runner ", r.id, " finishing"), DEBUG)
+	r.b.debugStatement(fmt.Sprint("Runner ", r.id, " finishing"), Debug)
 }
 
 // Run through a single step of the circuit

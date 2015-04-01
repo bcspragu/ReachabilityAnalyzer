@@ -2,8 +2,6 @@ package bench
 
 import (
 	"bufio"
-	//"bytes"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -29,25 +27,17 @@ var gateRE = regexp.MustCompile(`^(\w+)\s*=\s*(\w+)\((\w+)\s*(?:,\s*(\w+))?\)$`)
 var inOutRE = regexp.MustCompile(`^(\w+)\((\w+)\)$`)
 
 const (
-	NONE = iota
-	DEBUG
-	VERBOSE
+	None = iota
+	Debug
+	Verbose
 )
 
-var nRunner int
-var verbose int
-var unroll int
-
 func init() {
-	flag.IntVar(&verbose, "v", NONE, "level of verboseness in output")
-	flag.IntVar(&nRunner, "runners", 10, "how many processes to simultaneously calculate state")
-	flag.IntVar(&unroll, "unroll", 2, "how many times to unroll the formula")
 }
 
-func NewFromFile(filename string) (*Bench, error) {
-	debugStatement("Creating bench", VERBOSE)
-	bench := &Bench{Unroll: unroll}
-	bench.runners = make([]*runner, nRunner)
+func NewFromFile(filename string, nRunners int) (*Bench, error) {
+	bench := &Bench{RunnerCount: nRunners}
+	bench.runners = make([]*runner, bench.RunnerCount)
 
 	bench.portMap = make(map[string]int)
 	bench.gateInputs = make(map[string][]int)
@@ -75,7 +65,7 @@ func NewFromFile(filename string) (*Bench, error) {
 
 	bench.loadLines(bench.lines)
 	bench.parseLines(bench.lines)
-	for i := 0; i < nRunner; i++ {
+	for i := 0; i < bench.RunnerCount; i++ {
 		bench.runners[i] = &runner{id: i, outState: make([]outState, len(bench.toOutputs)), b: bench}
 	}
 
@@ -263,17 +253,17 @@ func (b *Bench) ReachableStates() map[string][]State {
 	})
 }
 
-func (b *Bench) IsReachable() bool {
+func (b *Bench) IsReachable() (bool, int) {
 	states := b.reachableStates(func(s string) bool {
 		return s == b.Goal
 	})
 
 	for state := range states {
 		if state == b.Goal {
-			return true
+			return true, len(states)
 		}
 	}
-	return false
+	return false, len(states)
 }
 
 // To find all of the reachable states, we spin up a bunch of worker threads.
@@ -286,7 +276,7 @@ func (b *Bench) reachableStates(goalFunc func(string) bool) map[string][]State {
 
 	statesToCheck := make(chan string, 1000)
 	foundStates := make(chan newState, 1000)
-	searched := make(chan bool, nRunner)
+	searched := make(chan bool, b.RunnerCount)
 	statesToCheck <- initState
 
 	// Spin up our runners
@@ -306,20 +296,20 @@ Loop:
 				statesToCheck <- potentiallyNewState
 				nextStates[found.found.state] = []State{}
 				nextStates[found.state] = append(nextStates[found.state], found.found)
-				debugStatement(fmt.Sprint("Sent ", potentiallyNewState, " to be searched"), DEBUG)
+				b.debugStatement(fmt.Sprint("Sent ", potentiallyNewState, " to be searched"), Debug)
 				if goalFunc(potentiallyNewState) {
 					break Loop
 				}
 			}
 		case <-searched: // A state has been finished
 			totalStates--
-			debugStatement(fmt.Sprint(totalStates, " left"), DEBUG)
+			b.debugStatement(fmt.Sprint(totalStates, " left"), Debug)
 			if totalStates == 0 {
 				close(statesToCheck)
 				break Loop
 			}
-		case <-time.After(time.Second * 10):
-			debugStatement("Timed out", DEBUG)
+		case <-time.After(time.Minute * 10):
+			b.debugStatement("Timed out", Debug)
 			break Loop
 		}
 	}
@@ -327,8 +317,8 @@ Loop:
 	return nextStates
 }
 
-func debugStatement(statement string, level int) {
-	if level <= verbose {
+func (b *Bench) debugStatement(statement string, level int) {
+	if level <= b.LogLevel {
 		fmt.Println(statement)
 	}
 }

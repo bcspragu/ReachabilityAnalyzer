@@ -2,8 +2,12 @@ package bench
 
 type Bench struct {
 	// The state we're looking for
-	Goal   string
-	Unroll int
+	Goal string
+
+	// Vars set by the calling program, generally by flags
+	Unroll      int
+	LogLevel    int
+	RunnerCount int
 
 	// The bench file in a more convenient format
 	lines []fileLine
