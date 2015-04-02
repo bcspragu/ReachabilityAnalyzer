@@ -2,10 +2,12 @@ package bench
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -31,9 +33,6 @@ const (
 	Debug
 	Verbose
 )
-
-func init() {
-}
 
 func NewFromFile(filename string, nRunners int) (*Bench, error) {
 	bench := &Bench{RunnerCount: nRunners}
@@ -253,17 +252,17 @@ func (b *Bench) ReachableStates() map[string][]State {
 	})
 }
 
-func (b *Bench) IsReachable() (bool, int) {
+func (b *Bench) IsReachable() (bool, map[string][]State) {
 	states := b.reachableStates(func(s string) bool {
 		return s == b.Goal
 	})
 
 	for state := range states {
 		if state == b.Goal {
-			return true, len(states)
+			return true, states
 		}
 	}
-	return false, len(states)
+	return false, states
 }
 
 // To find all of the reachable states, we spin up a bunch of worker threads.
@@ -321,6 +320,42 @@ func (b *Bench) debugStatement(statement string, level int) {
 	if level <= b.LogLevel {
 		fmt.Println(statement)
 	}
+}
+
+func (b *Bench) Solution(nextStates map[string][]State) string {
+	prevStates := make(map[string][]State)
+	for state, states := range nextStates {
+		for _, prevState := range states {
+			prevStates[prevState.state] = append(prevStates[prevState.state], State{state: state, input: prevState.input})
+		}
+	}
+	currState := b.Goal
+	initState := strings.Repeat("0", len(b.ffs))
+	strs := []string{fmt.Sprint("Final: ", b.Goal, "\n")}
+	i := 0
+Loop:
+	for {
+		for _, prevState := range prevStates[currState] {
+			if prevState.state == initState {
+				strs = append(strs, fmt.Sprint("Initial: ", initState, " Inputs: ", prevState.input, "\n"))
+				break Loop
+			}
+		}
+		prev := prevStates[currState][0]
+		strs = append(strs, fmt.Sprint(": ", prev.state, " Inputs: ", prev.input, "\n"))
+		currState = prev.state
+		i++
+	}
+
+	var buf bytes.Buffer
+	for i := len(strs) - 1; i >= 0; i-- {
+		if i != 0 && i != len(strs)-1 {
+			buf.WriteString("State " + strconv.Itoa(len(strs)-i) + strs[i])
+		} else {
+			buf.WriteString(strs[i])
+		}
+	}
+	return buf.String()
 }
 
 func (b *Bench) NextState(state, input string) string {

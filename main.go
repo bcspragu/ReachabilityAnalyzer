@@ -51,17 +51,26 @@ func main() {
 		}
 		fmt.Println("Explicitly Reachable:", isReachable)
 		fmt.Println("Total reachable states:", len(reachable))
+		if isReachable {
+			fmt.Println(b.Solution(reachable))
+		}
 	} else if explicit && !count {
-		reachable, count := b.IsReachable()
-		fmt.Println("Explicitly Reachable:", reachable)
-		fmt.Println("Number of states found before terminating:", count)
+		isReachable, reachable := b.IsReachable()
+		fmt.Println("Explicitly reachable:", isReachable)
+		fmt.Println("Number of states found before terminating:", len(reachable))
+		if isReachable {
+			fmt.Println(b.Solution(reachable))
+		}
 	} else if count && !explicit {
 		reachable := b.ReachableStates()
 		fmt.Println("Total reachable states:", len(reachable))
 	}
 
 	if symbolic {
-		sat, _ := b.Sat()
-		fmt.Println("Symbolicly Reachable in", nUnroll, "unrollings:", sat)
+		sat, sol := b.Sat()
+		fmt.Println("Symbolically reachable in", nUnroll, "unrollings:", sat)
+		if sat {
+			fmt.Println(sol)
+		}
 	}
 }
